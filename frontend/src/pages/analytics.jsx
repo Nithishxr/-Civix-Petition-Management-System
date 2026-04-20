@@ -2,6 +2,7 @@ import {
   PieChart, Pie, BarChart, Bar, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from "recharts";
+import { useNavigate } from "react-router-dom";
 import { petitions, polls, monthlyPetitionTrend, categoryDistribution, locationEngagement } from "@/data/mockData";
 import "../styles/Analytics.css";
 
@@ -24,11 +25,32 @@ const tooltipStyle = {
 };
 
 const Analytics = () => {
+  const navigate = useNavigate();
   return (
     <div className="analytics-container">
       <div className="analytics-header">
-        <h1 className="analytics-title">📊 Reports & Analytics</h1>
-        <p className="analytics-subtitle">Comprehensive civic engagement insights</p>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
+          <div>
+            <h1 className="analytics-title">📊 Reports & Analytics</h1>
+            <p className="analytics-subtitle">Comprehensive civic engagement insights</p>
+          </div>
+          <button
+            onClick={() => navigate("/official-dashboard")}
+            style={{
+              padding: "8px 18px",
+              background: "#667eea",
+              color: "#fff",
+              border: "none",
+              borderRadius: "8px",
+              cursor: "pointer",
+              fontWeight: 600,
+              fontSize: "14px",
+              whiteSpace: "nowrap",
+            }}
+          >
+            ← Back to Dashboard
+          </button>
+        </div>
       </div>
 
       {/* Petition Analytics */}

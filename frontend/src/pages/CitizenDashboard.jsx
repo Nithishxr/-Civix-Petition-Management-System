@@ -1,7 +1,6 @@
 import { useContext, useState, useEffect, useCallback } from "react";
 import { AuthContext } from "../context/AuthContext";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
-import { usePoll } from "../context/PollContext";
 import API from "../services/api";
 import "../styles/Dashboard.css";
 
@@ -15,31 +14,36 @@ function useToast() {
 }
 
 const statusStyle = (status) => {
-  if (status === "pending")     return { bg: "#fef9c3", color: "#ca8a04" };
-  if (status === "in_progress") return { bg: "#dbeafe", color: "#2563eb" };
-  if (status === "resolved")    return { bg: "#dcfce7", color: "#16a34a" };
-  if (status === "rejected")    return { bg: "#fee2e2", color: "#dc2626" };
+  if (status === "active")  return { bg: "#dcfce7", color: "#16a34a" };
+  if (status === "pending") return { bg: "#fef9c3", color: "#ca8a04" };
+  if (status === "closed")  return { bg: "#f1f5f9", color: "#64748b" };
   return { bg: "#f1f5f9", color: "#64748b" };
 };
 
 const statusLabel = (s) => {
-  if (s === "in_progress") return "In Progress";
-  if (s === "pending")     return "Pending";
-  if (s === "resolved")    return "Resolved";
-  if (s === "rejected")    return "Rejected";
+  if (s === "active")  return "Active";
+  if (s === "pending") return "Pending";
+  if (s === "closed")  return "Closed";
   return s;
 };
 
 const CitizenDashboard = () => {
   const { user, logout } = useContext(AuthContext);
-  const { polls } = usePoll();
   const navigate = useNavigate();
   const location = useLocation();
   const { toast, show: showToast } = useToast();
 
-  const [stats, setStats] = useState({ pending: 0, inProgress: 0, resolved: 0, total: 0 });
+  // Guard: redirect non-citizens immediately
+  useEffect(() => {
+    const role = user?.role || localStorage.getItem("role");
+    if (!role) { navigate("/login", { replace: true }); return; }
+    if (role !== "citizen") { navigate("/official-dashboard", { replace: true }); }
+  }, [user]);
+
+  const [stats, setStats] = useState({ pending: 0, active: 0, closed: 0, total: 0 });
   const [petitions, setPetitions] = useState([]);
-  const [responses, setResponses] = useState({});   // petitionId → responses[]
+  const [polls, setPolls] = useState([]);
+  const [responses, setResponses] = useState({});
   const [expandedId, setExpandedId] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -48,14 +52,21 @@ const CitizenDashboard = () => {
   const fetchData = useCallback(async () => {
     try {
       setLoading(true);
-      const [petRes, statsRes] = await Promise.all([
+      const token = localStorage.getItem("token");
+      const [petRes, pollRes] = await Promise.all([
         API.get("/petitions"),
-        API.get("/petitions/stats"),
+        API.get("/polls", { headers: { Authorization: `Bearer ${token}` } }),
       ]);
       const all = petRes.data.petitions || petRes.data || [];
-      const s = statsRes.data.stats || {};
+      const allPolls = Array.isArray(pollRes.data) ? pollRes.data : [];
       setPetitions(all.slice(0, 5));
-      setStats({ pending: s.pending || 0, inProgress: s.inProgress || 0, resolved: s.resolved || 0, total: s.total || 0 });
+      setPolls(allPolls);
+      setStats({
+        pending: all.filter(p => p.status === "pending").length,
+        active:  all.filter(p => p.status === "active").length,
+        closed:  all.filter(p => p.status === "closed").length,
+        total:   all.length,
+      });
     } catch {
       showToast("Failed to load data", "error");
     } finally {
@@ -77,8 +88,8 @@ const CitizenDashboard = () => {
     }
   };
 
-  const activePolls = polls.filter(p => p.status === "active");
-  const totalPollVotes = polls.reduce((s, p) => s + p.options.reduce((a, o) => a + o.votes, 0), 0);
+  const activePolls = polls.slice(0, 3);
+  const totalPollVotes = polls.reduce((s, p) => s + p.options.reduce((a, o) => a + (o.voteCount || 0), 0), 0);
 
   return (
     <div className="dashboard-container">
@@ -142,24 +153,24 @@ const CitizenDashboard = () => {
                 </div>
               </div>
               <div className="stat-card stat-blue">
-                <div className="stat-icon">🔄</div>
+                <div className="stat-icon">✅</div>
                 <div className="stat-info">
-                  <p className="stat-label">In Progress</p>
-                  <h3 className="stat-value">{loading ? "—" : stats.inProgress}</h3>
+                  <p className="stat-label">Active</p>
+                  <h3 className="stat-value">{loading ? "—" : stats.active}</h3>
                 </div>
               </div>
               <div className="stat-card stat-green">
-                <div className="stat-icon">✅</div>
+                <div className="stat-icon">🔒</div>
                 <div className="stat-info">
-                  <p className="stat-label">Resolved</p>
-                  <h3 className="stat-value">{loading ? "—" : stats.resolved}</h3>
+                  <p className="stat-label">Closed</p>
+                  <h3 className="stat-value">{loading ? "—" : stats.closed}</h3>
                 </div>
               </div>
               <div className="stat-card stat-purple">
                 <div className="stat-icon">🗳️</div>
                 <div className="stat-info">
                   <p className="stat-label">Active Polls</p>
-                  <h3 className="stat-value">{activePolls.length}</h3>
+                  <h3 className="stat-value">{loading ? "—" : polls.length}</h3>
                 </div>
               </div>
             </div>
@@ -264,14 +275,14 @@ const CitizenDashboard = () => {
                   <div className="activity-item" style={{ cursor: "default" }}>
                     <p style={{ color: "#94a3b8", margin: 0 }}>No active polls right now.</p>
                   </div>
-                ) : activePolls.slice(0, 3).map((poll) => {
-                  const total = poll.options.reduce((s, o) => s + o.votes, 0);
+                ) : activePolls.map((poll) => {
+                  const total = poll.options.reduce((s, o) => s + (o.voteCount || 0), 0);
                   return (
-                    <div key={poll.id} className="activity-item" onClick={() => navigate(`/poll/${poll.id}`)}>
+                    <div key={poll._id} className="activity-item" style={{ cursor: "default" }}>
                       <div className="activity-icon">🗳️</div>
                       <div className="activity-content">
                         <h5>{poll.title}</h5>
-                        <p>{total.toLocaleString()} votes · {poll.issue}</p>
+                        <p>{total.toLocaleString()} votes · 📍 {poll.targetLocation}</p>
                       </div>
                       <span className="activity-badge live">Live</span>
                     </div>

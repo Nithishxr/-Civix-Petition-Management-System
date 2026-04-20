@@ -19,10 +19,10 @@ const CitizenLogin = () => {
 
     try {
 
-      const res = await API.post("/auth/login/citizen", {
-  email,
-  password
-});
+      const res = await API.post("/auth/login", {
+        email,
+        password
+      });
 
       const data = res.data;
 

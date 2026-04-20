@@ -1,7 +1,7 @@
 import { useState, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { usePoll } from '../context/PollContext';
 import { AuthContext } from '../context/AuthContext';
+import API from '../services/api';
 import './CreatePollPage.css';
 
 const CATEGORIES = [
@@ -12,9 +12,7 @@ const CATEGORIES = [
 
 export default function CreatePollPage() {
     const navigate = useNavigate();
-    const { createPoll } = usePoll();
     const { user } = useContext(AuthContext);
-    const role = localStorage.getItem("role");
 
     const [form, setForm] = useState({
         title: '',
@@ -26,8 +24,6 @@ export default function CreatePollPage() {
     const [options, setOptions] = useState(['', '']);
     const [errors, setErrors] = useState({});
     const [submitting, setSubmitting] = useState(false);
-
-    const createdBy = user?.name || user?.username || (role === 'official' ? 'Official' : 'Citizen');
 
     const validate = () => {
         const e = {};
@@ -44,25 +40,23 @@ export default function CreatePollPage() {
         if (Object.keys(errs).length > 0) { setErrors(errs); return; }
         setSubmitting(true);
 
-        // Calculate durationDays from endDate or default 7
-        let durationDays = 7;
-        if (form.endDate) {
-            const diff = new Date(form.endDate) - new Date();
-            if (diff > 0) durationDays = Math.ceil(diff / (1000 * 60 * 60 * 24));
+        try {
+            const token = localStorage.getItem("token");
+            const validOpts = options.filter(o => o.trim());
+            await API.post("/polls", {
+                title: form.title,
+                options: validOpts,
+                targetLocation: form.location,
+                expiresAt: form.endDate || undefined,
+            }, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            navigate('/dashboard/polls');
+        } catch (err) {
+            setErrors({ submit: err.response?.data?.message || "Failed to create poll" });
+        } finally {
+            setSubmitting(false);
         }
-
-        createPoll({
-            title: form.title,
-            description: form.description,
-            issue: form.category,
-            location: form.location,
-            durationDays,
-            options: options.filter(o => o.trim()),
-            tags: [],
-            createdBy,
-        });
-
-        navigate('/dashboard/polls');
     };
 
     const addOption = () => {
@@ -94,6 +88,7 @@ export default function CreatePollPage() {
                     </div>
 
                     <form onSubmit={handleSubmit}>
+                        {errors.submit && <div className="error-msg" style={{ marginBottom: 12 }}>{errors.submit}</div>}
                         {/* Poll Title */}
                         <div className="form-group">
                             <label className="form-label">POLL TITLE *</label>
@@ -143,7 +138,7 @@ export default function CreatePollPage() {
                             </div>
                         </div>
 
-                        {/* End Date + Created By */}
+                        {/* End Date */}
                         <div className="form-row">
                             <div className="form-group flex-1">
                                 <label className="form-label">END DATE (OPTIONAL)</label>
@@ -152,14 +147,6 @@ export default function CreatePollPage() {
                                     className="form-input"
                                     value={form.endDate}
                                     onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))}
-                                />
-                            </div>
-                            <div className="form-group flex-1">
-                                <label className="form-label">CREATED BY</label>
-                                <input
-                                    className="form-input"
-                                    value={createdBy}
-                                    readOnly
                                 />
                             </div>
                         </div>

@@ -1,24 +1,63 @@
-import { useState, useMemo, useContext } from 'react';
+import { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { usePoll } from '../context/PollContext';
 import { AuthContext } from '../context/AuthContext';
+import API from '../services/api';
 import './PollsPage.css';
 
-const totalVotes = (poll) => poll.options.reduce((s, o) => s + o.votes, 0);
 
 export default function PollsPage() {
-    const { polls, votedPolls, vote, ISSUES } = usePoll();
     const { user } = useContext(AuthContext);
     const navigate = useNavigate();
     const role = localStorage.getItem("role");
     const backPath = role === "official" ? "/official-dashboard" : "/dashboard";
 
+    const [polls, setPolls] = useState([]);
+    const [votedPolls, setVotedPolls] = useState(() => {
+        const saved = localStorage.getItem('civic_voted');
+        return saved ? JSON.parse(saved) : {};
+    });
     const [filter, setFilter] = useState('all');
+    const [loading, setLoading] = useState(true);
 
-    const filtered = useMemo(() => {
-        if (filter === 'all') return polls;
-        return polls.filter(p => p.status === filter);
-    }, [polls, filter]);
+    useEffect(() => {
+        fetchPolls();
+    }, []);
+
+    const fetchPolls = async () => {
+        try {
+            setLoading(true);
+            const token = localStorage.getItem("token");
+            const res = await API.get("/polls", {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            // Backend returns array of polls
+            const data = Array.isArray(res.data) ? res.data : [];
+            setPolls(data);
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleVote = async (pollId, optionText) => {
+        if (votedPolls[pollId]) return;
+        try {
+            const token = localStorage.getItem("token");
+            await API.post(`/polls/${pollId}/vote`, { selectedOption: optionText }, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            const updated = { ...votedPolls, [pollId]: optionText };
+            setVotedPolls(updated);
+            localStorage.setItem('civic_voted', JSON.stringify(updated));
+            fetchPolls();
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
+    // Backend Poll model has no status field — treat all as active
+    const filtered = filter === 'all' ? polls : polls.filter(p => (p.status || 'active') === filter);
 
     return (
         <div className="polls-page">
@@ -35,8 +74,14 @@ export default function PollsPage() {
                     <button className="btn-back" onClick={() => navigate(backPath)}>
                         ← Back
                     </button>
-                    <button className="btn-create" onClick={() => navigate('/dashboard/polls/create')}>
-                        + Create Poll
+                    <button className="btn-create" onClick={() => {
+                        if (role !== "official") {
+                            alert("Only officials can create polls.");
+                            return;
+                        }
+                        navigate('/dashboard/polls/create');
+                    }}>
+                        Create Poll
                     </button>
                 </div>
             </div>
@@ -56,14 +101,23 @@ export default function PollsPage() {
 
             {/* Poll list */}
             <div className="polls-list">
-                {filtered.length === 0 ? (
+                {loading ? (
+                    <div className="empty-state"><p>Loading polls…</p></div>
+                ) : filtered.length === 0 ? (
                     <div className="empty-state">
                         <div className="empty-icon">🗳️</div>
                         <p>No polls found</p>
                     </div>
                 ) : (
                     filtered.map(poll => (
-                        <PollCard key={poll.id} poll={poll} votedPolls={votedPolls} vote={vote} />
+                        <PollCard
+                            key={poll._id}
+                            poll={poll}
+                            votedOption={votedPolls[poll._id]}
+                            onVote={handleVote}
+                            role={role}
+                            onNavigate={(pollId) => navigate(`/poll/${pollId}`)}
+                        />
                     ))
                 )}
             </div>
@@ -71,57 +125,49 @@ export default function PollsPage() {
     );
 }
 
-function PollCard({ poll, votedPolls, vote }) {
-    const total = totalVotes(poll);
-    const votedOptionId = votedPolls[poll.id];
-    const hasVoted = !!votedOptionId;
-
-    const handleVote = (optionId) => {
-        if (!hasVoted && poll.status === 'active') {
-            vote(poll.id, optionId);
-        }
-    };
+function PollCard({ poll, votedOption, onVote, role, onNavigate }) {
+    const total = poll.options.reduce((s, o) => s + (o.voteCount || 0), 0);
+    const hasVoted = !!votedOption;
 
     return (
-        <div className="poll-card">
+        <div className="poll-card" onClick={() => onNavigate(poll._id)} style={{ cursor: 'pointer' }}>
             <div className="poll-card-top">
                 <h2 className="poll-card-title">{poll.title}</h2>
-                <span className={`status-badge ${poll.status === 'active' ? 'badge-active' : 'badge-closed'}`}>
-                    {poll.status === 'active' ? 'Active' : 'Closed'}
-                </span>
+                <span className="status-badge badge-active">Active</span>
             </div>
 
-            {poll.description && (
-                <p className="poll-card-desc">{poll.description}</p>
-            )}
-
             <div className="poll-card-meta">
-                {poll.issue && <span className="issue-badge">{poll.issue}</span>}
-                {poll.location && (
+                {poll.targetLocation && (
                     <span className="location-tag">
                         <span className="location-dot" />
-                        {poll.location}
+                        {poll.targetLocation}
                     </span>
+                )}
+                {poll.createdBy?.name && (
+                    <span className="created-by">By: {poll.createdBy.name}</span>
                 )}
             </div>
 
             {/* Options with vote bars */}
             <div className="poll-options">
                 {poll.options.map(opt => {
-                    const pct = total > 0 ? Math.round((opt.votes / total) * 100) : 0;
-                    const isVoted = votedOptionId === opt.id;
+                    const pct = total > 0 ? Math.round(((opt.voteCount || 0) / total) * 100) : 0;
+                    const isVoted = votedOption === opt.text;
                     return (
                         <div
-                            key={opt.id}
-                            className={`poll-option ${isVoted ? 'voted' : ''} ${!hasVoted && poll.status === 'active' ? 'clickable' : ''}`}
-                            onClick={() => handleVote(opt.id)}
+                            key={opt._id}
+                            className={`poll-option ${isVoted ? 'voted' : ''} ${!hasVoted && role === 'citizen' ? 'clickable' : ''}`}
+                            onClick={e => {
+                                e.stopPropagation();
+                                if (!hasVoted && role === 'citizen') onVote(poll._id, opt.text);
+                            }}
                         >
                             <div className="option-label-row">
                                 <span className="option-text">
                                     {isVoted && <span className="check-mark">✓ </span>}
                                     {opt.text}
                                 </span>
-                                <span className="option-votes">{opt.votes} votes ({pct}%)</span>
+                                <span className="option-votes">{opt.voteCount || 0} votes ({pct}%)</span>
                             </div>
                             <div className="option-bar-track">
                                 <div
@@ -134,7 +180,6 @@ function PollCard({ poll, votedPolls, vote }) {
                 })}
             </div>
 
-            {/* Voted notice */}
             {hasVoted && (
                 <div className="voted-notice">
                     ✅ You have voted on this poll
@@ -143,7 +188,7 @@ function PollCard({ poll, votedPolls, vote }) {
 
             <div className="poll-card-footer">
                 <span className="total-votes">Total votes: {total}</span>
-                {poll.createdBy && <span className="created-by">By: {poll.createdBy}</span>}
+                <span style={{ fontSize: 12, color: '#94a3b8' }}>Click to view details →</span>
             </div>
         </div>
     );

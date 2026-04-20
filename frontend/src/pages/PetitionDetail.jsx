@@ -23,7 +23,7 @@ const PetitionDetail = () => {
   const role = localStorage.getItem("role");
 
   const [petition, setPetition] = useState(null);
-  const [comments, setComments] = useState([]);
+  const [responses, setResponses] = useState([]);
   const [comment, setComment] = useState("");
 
   useEffect(() => {
@@ -35,7 +35,10 @@ const PetitionDetail = () => {
       const res = await fetch(`http://localhost:3000/api/petitions/${id}`);
       const data = await res.json();
       setPetition(data);
-      setComments(data.comments || []);
+      // Load official responses
+      const respRes = await fetch(`http://localhost:3000/api/responses/${id}`);
+      const respData = await respRes.json();
+      setResponses(respData.responses || []);
     } catch (error) {
       console.log(error);
     }
@@ -62,22 +65,9 @@ const PetitionDetail = () => {
   };
 
   const handleAddComment = async () => {
-    if (!comment.trim()) return;
-    try {
-      await fetch(`http://localhost:3000/api/petitions/${id}/comment`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          author: role === "official" ? "Official" : "Citizen",
-          text: comment,
-          isOfficial: role === "official"
-        })
-      });
-      setComment("");
-      fetchPetition();
-    } catch (error) {
-      console.log(error);
-    }
+    // No comment endpoint in backend — responses are posted by officials via /petitions/:id/respond
+    alert("Comments can only be posted by officials through the official response panel.");
+    setComment("");
   };
 
   const handleDownloadPDF = () => {
@@ -170,33 +160,35 @@ const PetitionDetail = () => {
           </div>
         </div>
 
-        {/* Comments */}
+        {/* Official Responses */}
         <div className="petition-comments-card">
-          <h3>Comments ({comments.length})</h3>
+          <h3>Official Responses ({responses.length})</h3>
 
-          {comments.length === 0 && (
-            <p className="petition-no-comments">No comments yet. Be the first!</p>
+          {responses.length === 0 && (
+            <p className="petition-no-comments">No official responses yet.</p>
           )}
 
-          {comments.map((c) => (
-            <div key={c._id} className="petition-comment-item">
-              <div className="petition-comment-author">{c.author}</div>
-              <p className="petition-comment-text">{c.text}</p>
+          {responses.map((r) => (
+            <div key={r._id} className="petition-comment-item">
+              <div className="petition-comment-author">{r.officialId?.name || "Official"}</div>
+              <p className="petition-comment-text">{r.comment}</p>
             </div>
           ))}
 
-          <div className="petition-comment-form">
-            <textarea
-              className="petition-comment-textarea"
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-              placeholder="Write a comment..."
-            />
-            <button className="petition-comment-submit" onClick={handleAddComment}>
-              <Send size={14} />
-              Add Comment
-            </button>
-          </div>
+          {role === "official" && (
+            <div className="petition-comment-form">
+              <textarea
+                className="petition-comment-textarea"
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                placeholder="Write an official response..."
+              />
+              <button className="petition-comment-submit" onClick={handleAddComment}>
+                <Send size={14} />
+                Add Response
+              </button>
+            </div>
+          )}
         </div>
 
       </div>

@@ -141,7 +141,7 @@ const Petitions = () => {
 
   const filtered = useMemo(() => {
 
-    const statusOrder = { pending: 1, in_progress: 2, resolved: 3, rejected: 4 };
+    const statusOrder = { active: 1, pending: 2, closed: 3 };
 
     return petitionsData
       .filter((p) => {
@@ -167,10 +167,9 @@ const Petitions = () => {
   }, [search, statusFilter, categoryFilter, petitionsData]);
 
   const getStatusClass = (status) => {
-    if (status === "pending")     return styles.pending;
-    if (status === "in_progress") return styles.review;
-    if (status === "resolved")    return styles.active;
-    if (status === "rejected")    return styles.closed;
+    if (status === "active")  return styles.active;
+    if (status === "pending") return styles.pending;
+    if (status === "closed")  return styles.closed;
     return "";
   };
 
@@ -216,10 +215,9 @@ const Petitions = () => {
           className={styles.select}
         >
           <option value="all">All Status</option>
+          <option value="active">Active</option>
           <option value="pending">Pending</option>
-          <option value="in_progress">In Progress</option>
-          <option value="resolved">Resolved</option>
-          <option value="rejected">Rejected</option>
+          <option value="closed">Closed</option>
         </select>
 
         <select
@@ -298,7 +296,7 @@ const Petitions = () => {
                   </button>
                 </Link>
 
-                {(p.status === "pending" || p.status === "in_progress") && (
+                {(p.status === "active" || p.status === "pending") && (
 
                   <button
                     onClick={() => handleSign(p._id)}

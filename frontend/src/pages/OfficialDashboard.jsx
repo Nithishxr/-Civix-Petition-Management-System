@@ -1,7 +1,6 @@
 import { useContext, useState, useEffect, useCallback } from "react";
 import { AuthContext } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
-import { usePoll } from "../context/PollContext";
 import API from "../services/api";
 import { StatusBadge } from "../components/StatusBadge";
 import "../styles/OfficialDashboard.css";
@@ -17,12 +16,18 @@ function useToast() {
 
 const OfficialDashboard = () => {
   const { user, logout } = useContext(AuthContext);
-  const { polls } = usePoll();
   const navigate = useNavigate();
   const { toast, show: showToast } = useToast();
 
+  // Guard: redirect non-officials immediately
+  useEffect(() => {
+    const role = user?.role || localStorage.getItem("role");
+    if (!role) { navigate("/login", { replace: true }); return; }
+    if (role !== "official") { navigate("/dashboard", { replace: true }); }
+  }, [user]);
+
   const [stats, setStats] = useState({
-    pendingPetitions: 0, inProgressPetitions: 0, resolvedPetitions: 0,
+    pendingPetitions: 0, activePetitions: 0, closedPetitions: 0,
     totalPetitions: 0, totalCitizens: 0, activePolls: 0,
   });
   const [petitions, setPetitions] = useState([]);
@@ -33,20 +38,15 @@ const OfficialDashboard = () => {
     try {
       setLoading(true);
       const token = localStorage.getItem("token");
-      const [petRes, statsRes] = await Promise.all([
-        API.get("/petitions", { headers: { Authorization: `Bearer ${token}` } }),
-        API.get("/petitions/stats"),
-      ]);
+      const petRes = await API.get("/petitions", { headers: { Authorization: `Bearer ${token}` } });
       const petitionsList = petRes.data.petitions || petRes.data || [];
-      const statsData = statsRes.data.stats || {};
       setPetitions(petitionsList);
       setStats(prev => ({
         ...prev,
-        pendingPetitions: statsData.pending || 0,
-        inProgressPetitions: statsData.inProgress || 0,
-        resolvedPetitions: statsData.resolved || 0,
-        totalPetitions: statsData.total || 0,
-        totalCitizens: statsData.totalCitizens || 0,
+        pendingPetitions: petitionsList.filter(p => p.status === "pending").length,
+        activePetitions:  petitionsList.filter(p => p.status === "active").length,
+        closedPetitions:  petitionsList.filter(p => p.status === "closed").length,
+        totalPetitions:   petitionsList.length,
       }));
     } catch {
       showToast("Failed to load dashboard data", "error");
@@ -55,10 +55,18 @@ const OfficialDashboard = () => {
     }
   }, []);
 
-  // Keep activePolls in sync with PollContext separately
+  // Keep activePolls in sync — fetch from backend
   useEffect(() => {
-    setStats(prev => ({ ...prev, activePolls: polls.filter(p => p.status === "active").length }));
-  }, [polls]);
+    const fetchPollCount = async () => {
+      try {
+        const token = localStorage.getItem("token");
+        const res = await API.get("/polls", { headers: { Authorization: `Bearer ${token}` } });
+        const allPolls = Array.isArray(res.data) ? res.data : [];
+        setStats(prev => ({ ...prev, activePolls: allPolls.length }));
+      } catch { /* ignore */ }
+    };
+    fetchPollCount();
+  }, []);
 
   useEffect(() => { fetchDashboardData(); }, [fetchDashboardData]);
 
@@ -93,26 +101,25 @@ const OfficialDashboard = () => {
   });
 
   const TABS = [
-    { key: "pending",     label: "Pending",     count: stats.pendingPetitions },
-    { key: "in_progress", label: "In Progress", count: stats.inProgressPetitions },
-    { key: "resolved",    label: "Resolved",    count: stats.resolvedPetitions },
-    { key: "rejected",    label: "Rejected" },
-    { key: "all",         label: "All",         count: stats.totalPetitions },
+    { key: "pending", label: "Pending", count: stats.pendingPetitions },
+    { key: "active",  label: "Active",  count: stats.activePetitions },
+    { key: "closed",  label: "Closed",  count: stats.closedPetitions },
+    { key: "all",     label: "All",     count: stats.totalPetitions },
   ];
 
   const STAT_CARDS = [
-    { icon: "📋", label: "Pending",    value: stats.pendingPetitions,    cls: "pending" },
-    { icon: "🔄", label: "In Progress",value: stats.inProgressPetitions, cls: "progress" },
-    { icon: "✅", label: "Resolved",   value: stats.resolvedPetitions,   cls: "resolved" },
-    { icon: "👥", label: "Citizens",   value: stats.totalCitizens,       cls: "citizens" },
-    { icon: "🗳️", label: "Active Polls",value: stats.activePolls,        cls: "polls" },
-    { icon: "📁", label: "Total",      value: stats.totalPetitions,      cls: "total" },
+    { icon: "📋", label: "Pending",      value: stats.pendingPetitions, cls: "pending" },
+    { icon: "✅", label: "Active",       value: stats.activePetitions,  cls: "progress" },
+    { icon: "🔒", label: "Closed",       value: stats.closedPetitions,  cls: "resolved" },
+    { icon: "👥", label: "Citizens",     value: stats.totalCitizens,    cls: "citizens" },
+    { icon: "🗳️", label: "Active Polls", value: stats.activePolls,      cls: "polls" },
+    { icon: "📁", label: "Total",        value: stats.totalPetitions,   cls: "total" },
   ];
 
   const QUICK_ACTIONS = [
     { icon: "📈", title: "Analytics",          action: () => navigate("/analytics") },
     { icon: "🗳️", title: "Manage Polls",       action: () => navigate("/dashboard/polls") },
-    { icon: "📄", title: "Reports",            action: () => navigate("/dashboard/reports") },
+    { icon: "📄", title: "Reports",            action: () => navigate("/dashboard/reports/official") },
     { icon: "💬", title: "Governance Response",action: () => navigate("/official-response") },
     { icon: "📋", title: "All Petitions",      action: () => setActiveTab("all") },
   ];
@@ -192,18 +199,13 @@ const OfficialDashboard = () => {
 
                 <div className="petition-actions">
                   {p.status === "pending" && (
-                    <button className="approve-btn" onClick={() => patchStatus(p._id, "in_progress", "approved")}>
-                      ✓ Approve
+                    <button className="approve-btn" onClick={() => patchStatus(p._id, "active", "activated")}>
+                      ✓ Activate
                     </button>
                   )}
-                  {p.status === "in_progress" && (
-                    <button className="approve-btn" onClick={() => patchStatus(p._id, "resolved", "resolved")}>
-                      ✓ Resolve
-                    </button>
-                  )}
-                  {(p.status === "pending" || p.status === "in_progress") && (
-                    <button className="reject-btn" onClick={() => patchStatus(p._id, "rejected", "rejected")}>
-                      ✗ Reject
+                  {(p.status === "pending" || p.status === "active") && (
+                    <button className="reject-btn" onClick={() => patchStatus(p._id, "closed", "closed")}>
+                      🔒 Close
                     </button>
                   )}
                   <button className="action-btn" onClick={() => navigate(`/edit-petition/${p._id}`)}>

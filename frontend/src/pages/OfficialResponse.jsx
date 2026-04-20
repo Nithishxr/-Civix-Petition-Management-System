@@ -5,10 +5,9 @@ import API from "../services/api";
 import "../styles/OfficialResponse.css";
 
 const STATUS_OPTIONS = [
-  { value: "pending",     label: "Pending",     color: "#d97706" },
-  { value: "in_progress", label: "In Progress", color: "#2563eb" },
-  { value: "resolved",    label: "Resolved",    color: "#16a34a" },
-  { value: "rejected",    label: "Rejected",    color: "#dc2626" },
+  { value: "pending", label: "Pending", color: "#d97706" },
+  { value: "active",  label: "Active",  color: "#16a34a" },
+  { value: "closed",  label: "Closed",  color: "#64748b" },
 ];
 
 const statusColor = (s) => STATUS_OPTIONS.find(o => o.value === s)?.color || "#718096";
@@ -21,7 +20,7 @@ export default function OfficialResponse() {
   const [selected, setSelected] = useState(null);       // petition being responded to
   const [responses, setResponses] = useState([]);
   const [respLoading, setRespLoading] = useState(false);
-  const [form, setForm] = useState({ message: "", type: "comment", status: "" });
+  const [form, setForm] = useState({ message: "" });
   const [submitting, setSubmitting] = useState(false);
   const [msg, setMsg] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
@@ -33,10 +32,11 @@ export default function OfficialResponse() {
     try {
       setLoading(true);
       const token = localStorage.getItem("token");
-      const res = await API.get("/responses/locality", {
+      const res = await API.get("/petitions", {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setPetitions(res.data.petitions || []);
+      const all = res.data.petitions || res.data || [];
+      setPetitions(all);
     } catch (e) {
       console.error(e);
     } finally {
@@ -46,7 +46,7 @@ export default function OfficialResponse() {
 
   const openPetition = async (petition) => {
     setSelected(petition);
-    setForm({ message: "", type: "comment", status: petition.status });
+    setForm({ message: "" });
     setMsg("");
     setRespLoading(true);
     try {
@@ -65,27 +65,25 @@ export default function OfficialResponse() {
     setSubmitting(true);
     try {
       const token = localStorage.getItem("token");
-      const payload = { message: form.message, type: form.type };
-      if (form.type === "status_update" && form.status) payload.status = form.status;
-
-      await API.post(`/responses/${selected._id}`, payload, {
+      // Backend expects { comment } — map message → comment
+      await API.post(`/petitions/${selected._id}/respond`, { comment: form.message }, {
         headers: { Authorization: `Bearer ${token}` }
       });
 
+      // If status update requested, patch status separately
+      if (form.type === "status_update" && form.status) {
+        await API.patch(`/petitions/${selected._id}/status`, { status: form.status }, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+      }
+
       setMsg("Response posted successfully.");
-      setForm({ message: "", type: "comment", status: form.status });
+      setForm({ message: "" });
 
       // Refresh responses and petition list
-      const [respRes] = await Promise.all([
-        API.get(`/responses/${selected._id}`),
-        fetchLocality()
-      ]);
+      const respRes = await API.get(`/responses/${selected._id}`);
       setResponses(respRes.data.responses || []);
-
-      // Update selected petition status if changed
-      if (form.type === "status_update" && form.status) {
-        setSelected(prev => ({ ...prev, status: form.status }));
-      }
+      await fetchLocality();
     } catch (e) {
       setMsg("Failed to post response.");
     } finally {
@@ -135,13 +133,13 @@ export default function OfficialResponse() {
         />
 
         <div className="or-filter-pills">
-          {["all", "pending", "in_progress", "resolved", "rejected"].map(s => (
+          {["all", "pending", "active", "closed"].map(s => (
             <button
               key={s}
               className={`or-pill ${filterStatus === s ? "active" : ""}`}
               onClick={() => setFilterStatus(s)}
             >
-              {s === "all" ? "All" : s === "in_progress" ? "In Progress" : s.charAt(0).toUpperCase() + s.slice(1)}
+              {s === "all" ? "All" : s.charAt(0).toUpperCase() + s.slice(1)}
             </button>
           ))}
         </div>
@@ -149,7 +147,7 @@ export default function OfficialResponse() {
         {loading ? (
           <div className="or-empty">Loading petitions…</div>
         ) : filtered.length === 0 ? (
-          <div className="or-empty">No petitions found in your locality.</div>
+          <div className="or-empty">No petitions found.</div>
         ) : (
           <div className="or-petition-list">
             {filtered.map(p => (
@@ -224,42 +222,11 @@ export default function OfficialResponse() {
               {msg && <div className={`or-msg ${msg.includes("success") ? "success" : "error"}`}>{msg}</div>}
 
               <form onSubmit={handleSubmit}>
-                <div className="or-form-row">
-                  <div className="or-form-group">
-                    <label className="or-label">Response Type</label>
-                    <select
-                      className="or-select"
-                      value={form.type}
-                      onChange={e => setForm(f => ({ ...f, type: e.target.value }))}
-                    >
-                      <option value="comment">Comment</option>
-                      <option value="status_update">Status Update</option>
-                    </select>
-                  </div>
-
-                  {form.type === "status_update" && (
-                    <div className="or-form-group">
-                      <label className="or-label">New Status</label>
-                      <select
-                        className="or-select"
-                        value={form.status}
-                        onChange={e => setForm(f => ({ ...f, status: e.target.value }))}
-                      >
-                        {STATUS_OPTIONS.map(o => (
-                          <option key={o.value} value={o.value}>{o.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-                </div>
-
                 <div className="or-form-group">
                   <label className="or-label">Message</label>
                   <textarea
                     className="or-textarea"
-                    placeholder={form.type === "status_update"
-                      ? "Explain the status change to citizens…"
-                      : "Write your official comment or update…"}
+                    placeholder="Write your official comment or update…"
                     value={form.message}
                     onChange={e => setForm(f => ({ ...f, message: e.target.value }))}
                     required
@@ -267,7 +234,7 @@ export default function OfficialResponse() {
                 </div>
 
                 <button type="submit" className="or-submit-btn" disabled={submitting}>
-                  {submitting ? "Posting…" : form.type === "status_update" ? "📋 Update Status & Post" : "💬 Post Comment"}
+                  {submitting ? "Posting…" : "💬 Post Comment"}
                 </button>
               </form>
             </div>
@@ -282,21 +249,18 @@ export default function OfficialResponse() {
               ) : (
                 <div className="or-responses-list">
                   {responses.map(r => (
-                    <div key={r._id} className={`or-response-item ${r.type === "status_update" ? "status-update" : ""}`}>
+                    <div key={r._id} className="or-response-item">
                       <div className="or-response-header">
                         <div className="or-response-avatar">
-                          {(r.respondedBy?.name || "O").charAt(0).toUpperCase()}
+                          {(r.officialId?.name || "O").charAt(0).toUpperCase()}
                         </div>
                         <div>
-                          <span className="or-response-author">{r.respondedBy?.name || "Official"}</span>
+                          <span className="or-response-author">{r.officialId?.name || "Official"}</span>
                           <span className="or-response-role">Official</span>
                         </div>
-                        <span className={`or-response-type-badge ${r.type}`}>
-                          {r.type === "status_update" ? "📋 Status Update" : "💬 Comment"}
-                        </span>
                         <span className="or-response-time">{timeAgo(r.createdAt)}</span>
                       </div>
-                      <p className="or-response-msg">{r.message}</p>
+                      <p className="or-response-msg">{r.comment}</p>
                     </div>
                   ))}
                 </div>

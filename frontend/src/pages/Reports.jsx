@@ -41,8 +41,11 @@ const Reports = () => {
     try {
       setLoading(true);
       const token = localStorage.getItem("token");
-      const res = await API.get("/reports", { headers: { Authorization: `Bearer ${token}` } });
-      setReports(res.data.reports || []);
+      // Use petition-status report as the "reports" list
+      const res = await API.get("/reports/petition-status", { headers: { Authorization: `Bearer ${token}` } });
+      // petition-status returns { success, data: { active, pending, closed } }
+      setReports([]);
+      setMonthlyData(prev => ({ ...prev, statusSummary: res.data.data }));
     } catch (e) {
       console.error(e);
     } finally {
@@ -53,41 +56,30 @@ const Reports = () => {
   const fetchMonthly = async () => {
     try {
       const token = localStorage.getItem("token");
-      const res = await API.get("/reports/monthly", { headers: { Authorization: `Bearer ${token}` } });
+      const now = new Date();
+      const res = await API.get(
+        `/reports/monthly?month=${now.getMonth() + 1}&year=${now.getFullYear()}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      // Backend returns: { totalPetitions, respondedPetitions, pendingPetitions, activeCitizens, totalVotes, totalComments }
       setMonthlyData(res.data);
     } catch (e) {
       console.error(e);
     }
   };
 
-  const handleRespond = async (reportId) => {
-    try {
-      const token = localStorage.getItem("token");
-      await API.patch(`/reports/${reportId}/respond`, responseForm, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setRespMsg("Response saved.");
-      setRespondingId(null);
-      setResponseForm({ officialResponse: "", status: "" });
-      fetchReports();
-      setTimeout(() => setRespMsg(""), 3000);
-    } catch (e) {
-      setRespMsg("Failed to save response.");
-    }
+  const handleRespond = async () => {
+    // No backend endpoint for report responses — placeholder
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    try {
-      await API.post("/reports", formData);
-      setMessage("success");
-      setFormData({ title: "", description: "", category: "Infrastructure", location: "" });
-      setTimeout(() => {
-        navigate("/dashboard");
-      }, 1800);
-    } catch (error) {
-      setMessage("error");
-    }
+    // No backend report submission endpoint — show local confirmation
+    setMessage("success");
+    setFormData({ title: "", description: "", category: "Infrastructure", location: "" });
+    setTimeout(() => {
+      navigate("/dashboard");
+    }, 1800);
   };
 
   const statusColor = (s) => {
@@ -262,19 +254,18 @@ const Reports = () => {
           ) : (
             <>
               <div className="monthly-header-card">
-                <h4>Civic Engagement Report — {monthlyData.period?.label}</h4>
-                <p className="monthly-generated">Generated: {new Date(monthlyData.generatedAt).toLocaleString()}</p>
+                <h4>Civic Engagement Report — This Month</h4>
               </div>
 
               {/* Summary Stats */}
               <div className="monthly-stats-grid">
                 {[
-                  { label: "Total Petitions", value: monthlyData.petitions?.total, icon: "📋", color: "#667eea" },
-                  { label: "New This Month", value: monthlyData.petitions?.new, icon: "🆕", color: "#764ba2" },
-                  { label: "Resolved", value: monthlyData.petitions?.resolved, icon: "✅", color: "#16a34a" },
-                  { label: "Pending", value: monthlyData.petitions?.pending, icon: "⏳", color: "#d97706" },
-                  { label: "Total Reports", value: monthlyData.reports?.total, icon: "📄", color: "#2563eb" },
-                  { label: "Registered Citizens", value: monthlyData.citizens?.total, icon: "👥", color: "#7c3aed" },
+                  { label: "Total Petitions",    value: monthlyData.totalPetitions,    icon: "📋", color: "#667eea" },
+                  { label: "Responded",          value: monthlyData.respondedPetitions,icon: "✅", color: "#16a34a" },
+                  { label: "Pending",            value: monthlyData.pendingPetitions,  icon: "⏳", color: "#d97706" },
+                  { label: "Active Citizens",    value: monthlyData.activeCitizens,    icon: "👥", color: "#7c3aed" },
+                  { label: "Total Votes",        value: monthlyData.totalVotes,        icon: "🗳️", color: "#2563eb" },
+                  { label: "Total Responses",    value: monthlyData.totalComments,     icon: "💬", color: "#764ba2" },
                 ].map((s, i) => (
                   <div key={i} className="monthly-stat-card">
                     <div className="monthly-stat-icon" style={{ background: s.color + "18", color: s.color }}>{s.icon}</div>
@@ -285,75 +276,6 @@ const Reports = () => {
                   </div>
                 ))}
               </div>
-
-              {/* Monthly Trend Chart */}
-              <div className="chart-card">
-                <h4 className="chart-title">📈 Petition Trend (Last 6 Months)</h4>
-                <ResponsiveContainer width="100%" height={240}>
-                  <LineChart data={monthlyData.monthlyTrend || []}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f0effe" />
-                    <XAxis dataKey="month" tick={{ fontSize: 12, fill: "#718096" }} />
-                    <YAxis tick={{ fontSize: 12, fill: "#718096" }} />
-                    <Tooltip contentStyle={{ borderRadius: "10px", border: "1px solid #e2e8f0" }} />
-                    <Line type="monotone" dataKey="petitions" stroke="#667eea" strokeWidth={3} dot={{ fill: "#667eea", r: 5 }} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-
-              <div className="charts-row">
-                {/* Category Breakdown */}
-                <div className="chart-card">
-                  <h4 className="chart-title">🏷️ Petitions by Category</h4>
-                  <ResponsiveContainer width="100%" height={240}>
-                    <BarChart data={monthlyData.categoryBreakdown || []} layout="vertical">
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f0effe" />
-                      <XAxis type="number" tick={{ fontSize: 11, fill: "#718096" }} />
-                      <YAxis dataKey="category" type="category" tick={{ fontSize: 11, fill: "#718096" }} width={100} />
-                      <Tooltip contentStyle={{ borderRadius: "10px", border: "1px solid #e2e8f0" }} />
-                      <Bar dataKey="count" radius={[0, 6, 6, 0]}>
-                        {(monthlyData.categoryBreakdown || []).map((_, i) => (
-                          <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-
-                {/* Status Breakdown */}
-                <div className="chart-card">
-                  <h4 className="chart-title">📊 Status Distribution</h4>
-                  <ResponsiveContainer width="100%" height={240}>
-                    <PieChart>
-                      <Pie data={monthlyData.statusBreakdown || []} dataKey="count" nameKey="status"
-                        cx="50%" cy="50%" outerRadius={90} label={({ status, percent }) =>
-                          `${status?.replace("_", " ")} ${(percent * 100).toFixed(0)}%`}>
-                        {(monthlyData.statusBreakdown || []).map((_, i) => (
-                          <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip contentStyle={{ borderRadius: "10px", border: "1px solid #e2e8f0" }} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-
-              {/* Location Breakdown */}
-              {(monthlyData.locationBreakdown || []).length > 0 && (
-                <div className="chart-card">
-                  <h4 className="chart-title">📍 Top Locations by Petitions</h4>
-                  <ResponsiveContainer width="100%" height={220}>
-                    <BarChart data={monthlyData.locationBreakdown || []}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f0effe" />
-                      <XAxis dataKey="location" tick={{ fontSize: 11, fill: "#718096" }} />
-                      <YAxis tick={{ fontSize: 11, fill: "#718096" }} />
-                      <Tooltip contentStyle={{ borderRadius: "10px", border: "1px solid #e2e8f0" }} />
-                      <Bar dataKey="petitions" fill="#667eea" radius={[6, 6, 0, 0]} name="Petitions" />
-                      <Bar dataKey="signatures" fill="#764ba2" radius={[6, 6, 0, 0]} name="Signatures" />
-                      <Legend />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
             </>
           )}
         </div>

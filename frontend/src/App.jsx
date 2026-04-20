@@ -117,9 +117,9 @@ import EditPetition from "./pages/EditPetition";
 import PollsPage from './pages/PollsPage';
 import PollDetailPage from './pages/PollDetailPage';
 import CreatePollPage from './pages/CreatePollPage';
-
 import Reports from "./pages/Reports";
 import OfficialResponse from "./pages/OfficialResponse";
+import ProtectedRoute from "./components/ProtectedRoute";
 import "./App.css";
 
 function App() {
@@ -128,7 +128,7 @@ function App() {
       <div style={{ width: "100%", minHeight: "100vh" }}>
         <Routes>
 
-          {/* Auth */}
+          {/* Public — auth pages */}
           <Route path="/" element={<Login />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
@@ -136,28 +136,26 @@ function App() {
           <Route path="/login/citizen" element={<CitizenLogin />} />
           <Route path="/login/official" element={<OfficialLogin />} />
 
-          {/* Dashboards */}
-          <Route path="/dashboard" element={<CitizenDashboard />} />
-          <Route path="/dashboard/petitions" element={<Petitions />} />
-          <Route path="/dashboard/polls" element={<PollsPage />} />
-          <Route path="/dashboard/reports" element={<Reports />} />
-          <Route path="/official-dashboard" element={<OfficialDashboard />} />
-          <Route path="/analytics" element={<Analytics />} />
+          {/* Citizen-only routes */}
+          <Route path="/dashboard" element={<ProtectedRoute role="citizen"><CitizenDashboard /></ProtectedRoute>} />
+          <Route path="/dashboard/petitions" element={<ProtectedRoute role="citizen"><Petitions /></ProtectedRoute>} />
+          <Route path="/dashboard/polls" element={<ProtectedRoute><PollsPage /></ProtectedRoute>} />
+          <Route path="/dashboard/polls/create" element={<ProtectedRoute role="official"><CreatePollPage /></ProtectedRoute>} />
+          <Route path="/dashboard/reports" element={<ProtectedRoute role="citizen"><Reports /></ProtectedRoute>} />
 
-          {/* Petitions */}
-          <Route path="/petitions" element={<Petitions />} />
-          <Route path="/petitions/create" element={<CreatePetition />} />
-          <Route path="/edit-petition/:id" element={<EditPetition />} />
-          <Route path="/petitions/:id" element={<PetitionDetail />} />
+          {/* Official-only routes */}
+          <Route path="/official-dashboard" element={<ProtectedRoute role="official"><OfficialDashboard /></ProtectedRoute>} />
+          <Route path="/official-response" element={<ProtectedRoute role="official"><OfficialResponse /></ProtectedRoute>} />
+          <Route path="/analytics" element={<ProtectedRoute role="official"><Analytics /></ProtectedRoute>} />
+          <Route path="/dashboard/reports/official" element={<ProtectedRoute role="official"><Reports /></ProtectedRoute>} />
 
-          {/* Polls */}
-          <Route path="/poll/:id" element={<PollDetailPage />} />
-          <Route path="/dashboard/polls/create" element={<CreatePollPage />} />
+          {/* Shared protected routes (any logged-in user) */}
+          <Route path="/petitions" element={<ProtectedRoute><Petitions /></ProtectedRoute>} />
+          <Route path="/petitions/create" element={<ProtectedRoute><CreatePetition /></ProtectedRoute>} />
+          <Route path="/edit-petition/:id" element={<ProtectedRoute><EditPetition /></ProtectedRoute>} />
+          <Route path="/petitions/:id" element={<ProtectedRoute><PetitionDetail /></ProtectedRoute>} />
+          <Route path="/poll/:id" element={<ProtectedRoute><PollDetailPage /></ProtectedRoute>} />
 
-          {/* Official Response */}
-          <Route path="/official-response" element={<OfficialResponse />} />
-          
-          
           {/* 404 */}
           <Route path="*" element={<NotFound />} />
 

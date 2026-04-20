@@ -19,7 +19,7 @@ const OfficialLogin = () => {
 
     try {
 
-      const res = await API.post("/auth/login/official", {
+      const res = await API.post("/auth/login", {
         email,
         password
       });
